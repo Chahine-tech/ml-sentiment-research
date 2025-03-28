@@ -2,11 +2,49 @@ import pandas as pd
 import re
 import json
 import pickle
-from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score, precision_score, recall_score, f1_score
 import pg8000.native
+import nltk
+from nltk.stem.snowball import FrenchStemmer
+from nltk.tokenize import word_tokenize
+from nltk.stem import WordNetLemmatizer
+from nltk.corpus import stopwords
+from sklearn.pipeline import Pipeline
+
+# Télécharger les ressources NLTK nécessaires
+try:
+    nltk.data.find('tokenizers/punkt')
+except LookupError:
+    nltk.download('punkt')
+
+# Télécharger les ressources spécifiques au français
+try:
+    nltk.data.find('tokenizers/punkt_tab/french')
+except LookupError:
+    nltk.download('punkt_tab')
+
+# Télécharger les ressources pour la lemmatisation
+try:
+    nltk.data.find('corpora/wordnet')
+except LookupError:
+    nltk.download('wordnet')
+try:
+    nltk.data.find('corpora/omw-1.4')
+except LookupError:
+    nltk.download('omw-1.4')
+
+# Télécharger les stopwords français
+try:
+    nltk.data.find('corpora/stopwords')
+except LookupError:
+    nltk.download('stopwords')
+
+# Charger les stopwords français directement depuis NLTK
+french_stopwords = stopwords.words('french')
 
 # Création d'un dataset étendu pour améliorer les performances du modèle
 data = {
@@ -108,19 +146,6 @@ print(f"Dataset chargé : {len(data['text'])} commentaires au total")
 print(f"Commentaires haineux : {sum(data['label'])}")
 print(f"Commentaires non haineux : {len(data['label']) - sum(data['label'])}")
 
-# Liste des mots vides en français
-french_stopwords = [
-    "le", "la", "les", "aux", "avec", "ce", "ces", "dans", "de", "des", "du",
-    "elle", "en", "et", "eux", "il", "je", "la", "le", "leur", "lui", "ma",
-    "mais", "me", "même", "mes", "moi", "mon", "ni", "notre", "nous", "on",
-    "ou", "par", "pas", "pour", "qu", "que", "qui", "sa", "se", "ses", "son",
-    "sur", "ta", "te", "tes", "toi", "ton", "tu", "un", "une", "vos", "votre",
-    "vous", "c", "d", "j", "l", "à", "m", "n", "s", "t", "y", "été", "étée",
-    "étées", "étés", "étant", "suis", "es", "est", "sommes", "êtes", "sont",
-    "serai", "seras", "sera", "serons", "serez", "seront", "serais", "serait",
-    "serions", "seriez", "seraient"
-]
-
 # Configuration de la base de données
 DB_CONFIG = {
     "host": "localhost",  # Connect via port forwarding from host machine
@@ -130,10 +155,54 @@ DB_CONFIG = {
     "port": 5432
 }
 
-def clean_text(text):
-    """Nettoie le texte en le mettant en minuscule et en supprimant les caractères spéciaux"""
+class StemTokenizer:
+    """Tokenizer personnalisé qui utilise le stemming français"""
+    def __init__(self):
+        self.stemmer = FrenchStemmer()
+    
+    def __call__(self, doc):
+        return [self.stemmer.stem(t) for t in word_tokenize(doc, language='french') 
+                if t.isalpha() and t.lower() not in french_stopwords]
+
+class LemmaTokenizer:
+    """Tokenizer personnalisé qui utilise la lemmatisation française"""
+    def __init__(self):
+        self.lemmatizer = WordNetLemmatizer()
+    
+    def __call__(self, doc):
+        return [self.lemmatizer.lemmatize(t) for t in word_tokenize(doc, language='french') 
+                if t.isalpha() and t.lower() not in french_stopwords]
+
+class HybridTokenizer:
+    """Tokenizer hybride qui utilise à la fois le stemming et la lemmatisation"""
+    def __init__(self, use_stemming=True, use_lemmatizing=True):
+        self.stemmer = FrenchStemmer() if use_stemming else None
+        self.lemmatizer = WordNetLemmatizer() if use_lemmatizing else None
+    
+    def __call__(self, doc):
+        tokens = [t for t in word_tokenize(doc, language='french') 
+                 if t.isalpha() and t.lower() not in french_stopwords]
+        
+        # Appliquer le stemming si demandé
+        if self.stemmer:
+            tokens = [self.stemmer.stem(t) for t in tokens]
+            
+        # Appliquer la lemmatisation si demandée
+        if self.lemmatizer:
+            tokens = [self.lemmatizer.lemmatize(t) for t in tokens]
+            
+        return tokens
+
+def advanced_clean_text(text):
+    """Nettoie le texte avec des techniques plus avancées pour le NLP"""
+    # Conversion en minuscules
     text = text.lower()
+    # Suppression des caractères spéciaux tout en gardant les espaces
     text = re.sub(r'[^\w\s]', '', text)
+    # Suppression des chiffres
+    text = re.sub(r'\d+', '', text)
+    # Suppression des espaces multiples
+    text = re.sub(r'\s+', ' ', text).strip()
     return text
 
 def connect_to_db():
@@ -152,22 +221,23 @@ def connect_to_db():
         print(f"Erreur lors de la connexion à la base de données: {e}")
         return None
 
-def save_model_metrics(conn, metrics, model_params):
+def save_model_metrics(conn, metrics, model_params, model_type="ML"):
     """Enregistre les métriques du modèle dans la base de données"""
     try:
         conn.run(
-            "INSERT INTO model_metrics (accuracy, precision, recall, f1_score, model_parameters) VALUES (:accuracy, :precision, :recall, :f1, :params)",
+            "INSERT INTO model_metrics (accuracy, precision, recall, f1_score, model_parameters, model_type) VALUES (:accuracy, :precision, :recall, :f1, :params, :model_type)",
             accuracy=metrics["accuracy"],
             precision=metrics["precision"],
             recall=metrics["recall"],
             f1=metrics["f1"],
-            params=json.dumps(model_params)
+            params=json.dumps(model_params),
+            model_type=model_type
         )
-        print("Métriques du modèle enregistrées dans la base de données.")
+        print(f"Métriques du modèle {model_type} enregistrées dans la base de données.")
     except Exception as e:
         print(f"Erreur lors de l'enregistrement des métriques: {e}")
 
-def save_comments_data(conn, df, predictions=None, probabilities=None):
+def save_comments_data(conn, df, predictions=None, probabilities=None, model_type="ML"):
     """Enregistre les commentaires et leurs prédictions dans la base de données"""
     try:
         for i, row in df.iterrows():
@@ -182,14 +252,15 @@ def save_comments_data(conn, df, predictions=None, probabilities=None):
                 confidence = float(probabilities[i][1])
             
             conn.run(
-                "INSERT INTO comments (text, cleaned_text, hate_label, prediction, confidence) VALUES (:text, :cleaned_text, :label, :prediction, :confidence)",
+                "INSERT INTO comments (text, cleaned_text, hate_label, prediction, confidence, model_type) VALUES (:text, :cleaned_text, :label, :prediction, :confidence, :model_type)",
                 text=row["text"],
                 cleaned_text=row["text_clean"],
                 label=int(row["label"]),
                 prediction=prediction,
-                confidence=confidence
+                confidence=confidence,
+                model_type=model_type
             )
-        print(f"{len(df)} commentaires enregistrés dans la base de données.")
+        print(f"{len(df)} commentaires analysés par le modèle {model_type} et enregistrés dans la base de données.")
     except Exception as e:
         print(f"Erreur lors de l'enregistrement des commentaires: {e}")
 
@@ -199,13 +270,16 @@ def main():
     print("Dataset chargé avec succès.")
     
     # Prétraitement des données
-    df['text_clean'] = df['text'].apply(clean_text)
+    df['text_clean'] = df['text'].apply(advanced_clean_text)
     
     # Connexion à la base de données
     conn = connect_to_db()
     if conn is None:
         print("Impossible de continuer sans connexion à la base de données.")
         return
+    
+    # ----- PREMIÈRE APPROCHE: CountVectorizer + LogisticRegression -----
+    print("\n===== Approche 1: CountVectorizer + LogisticRegression =====")
     
     # Vectorisation
     vectorizer = CountVectorizer(stop_words=french_stopwords, max_features=100)
@@ -258,16 +332,16 @@ def main():
     }
     
     # Enregistrement des métriques dans la base de données
-    save_model_metrics(conn, metrics, model_params)
+    save_model_metrics(conn, metrics, model_params, "ML-LogReg")
     
     # Prédiction sur tous les commentaires et enregistrement dans la base de données
     all_predictions = model.predict(X)
     all_probabilities = model.predict_proba(X)
-    save_comments_data(conn, df, all_predictions, all_probabilities)
+    save_comments_data(conn, df, all_predictions, all_probabilities, "ML-LogReg")
     
     # Test sur de nouveaux commentaires
     new_comments = [
-        "Je ne supporte pas cette personne.",  # Haineux
+        "Je ne supporte pas cette personne.",  # Potentiellement haineux
         "Cette vidéo est incroyable, merci pour votre travail.",  # Non haineux
         "Arrête de dire n'importe quoi, imbécile.",  # Haineux
         "Une excellente présentation, bravo à toute l'équipe."  # Non haineux
@@ -275,7 +349,7 @@ def main():
     
     # Création d'un DataFrame pour les nouveaux commentaires
     new_df = pd.DataFrame({"text": new_comments})
-    new_df['text_clean'] = new_df['text'].apply(clean_text)
+    new_df['text_clean'] = new_df['text'].apply(advanced_clean_text)
     
     # Vectorisation des nouveaux commentaires
     new_comments_vectorized = vectorizer.transform(new_df['text_clean'])
@@ -286,10 +360,97 @@ def main():
     new_df['label'] = new_predictions
     
     # Enregistrement des nouveaux commentaires dans la base de données
-    save_comments_data(conn, new_df, new_predictions, new_probabilities)
+    save_comments_data(conn, new_df, new_predictions, new_probabilities, "ML-LogReg")
     
-    print("\nPrédictions sur les nouveaux commentaires :")
+    print("\nPrédictions du modèle LogisticRegression sur les nouveaux commentaires :")
     for comment, label, proba in zip(new_comments, new_predictions, new_probabilities):
+        confidence = proba[1]  # Probabilité de la classe positive (haineux)
+        print(f"Commentaire : '{comment}' -> {'Haineux' if label == 1 else 'Non haineux'} (confiance: {confidence:.2f})")
+    
+    # ----- DEUXIÈME APPROCHE: TF-IDF + RandomForest -----
+    print("\n===== Approche 2: TF-IDF + RandomForest =====")
+    
+    # Définition du pipeline NLP avec TF-IDF et RandomForest
+    tfidf_rf_pipeline = Pipeline([
+        ('tfidf', TfidfVectorizer(
+            tokenizer=HybridTokenizer(use_stemming=True, use_lemmatizing=True),
+            ngram_range=(1, 2),  # Utilisation de unigrammes et bigrammes
+            min_df=2,            # Ignorer les termes qui apparaissent dans moins de 2 documents
+            max_df=0.9,          # Ignorer les termes qui apparaissent dans plus de 90% des documents
+            sublinear_tf=True    # Appliquer une échelle logarithmique aux fréquences
+        )),
+        ('classifier', RandomForestClassifier(
+            n_estimators=100,
+            max_depth=10,
+            random_state=42
+        ))
+    ])
+    
+    # Préparation des données
+    X_raw = df['text_clean']
+    y_raw = df['label']
+    
+    # Division des données
+    X_train_raw, X_test_raw, y_train_raw, y_test_raw = train_test_split(X_raw, y_raw, test_size=0.25, random_state=42)
+    
+    # Entraînement du modèle
+    print("\nEntraînement du modèle TF-IDF + RandomForest avec tokenisation hybride...")
+    tfidf_rf_pipeline.fit(X_train_raw, y_train_raw)
+    print("Modèle TF-IDF + RandomForest entraîné avec succès.")
+    
+    # Sauvegarde du modèle
+    with open('tfidf_rf_model.pkl', 'wb') as f:
+        pickle.dump(tfidf_rf_pipeline, f)
+    print("Modèle TF-IDF + RandomForest sauvegardé.")
+    
+    # Évaluation
+    y_pred_rf = tfidf_rf_pipeline.predict(X_test_raw)
+    y_prob_rf = tfidf_rf_pipeline.predict_proba(X_test_raw)
+    
+    print("\nRapport de classification TF-IDF + RandomForest:")
+    print(classification_report(y_test_raw, y_pred_rf))
+    print("\nMatrice de confusion TF-IDF + RandomForest:")
+    print(confusion_matrix(y_test_raw, y_pred_rf))
+    
+    # Calcul des métriques
+    metrics_rf = {
+        "accuracy": float(accuracy_score(y_test_raw, y_pred_rf)),
+        "precision": float(precision_score(y_test_raw, y_pred_rf)),
+        "recall": float(recall_score(y_test_raw, y_pred_rf)),
+        "f1": float(f1_score(y_test_raw, y_pred_rf))
+    }
+    
+    # Paramètres du modèle
+    model_params_rf = {
+        "vectorizer": "TfidfVectorizer with HybridTokenizer",
+        "tokenization": "hybrid (stemming + lemmatization)",
+        "ngram_range": "1-2",
+        "model_type": "RandomForestClassifier",
+        "n_estimators": 100,
+        "max_depth": 10,
+        "test_size": 0.25,
+        "random_state": 42
+    }
+    
+    # Enregistrement des métriques dans la base de données
+    save_model_metrics(conn, metrics_rf, model_params_rf, "ML-TF-IDF-RF")
+    
+    # Prédiction sur tous les commentaires et enregistrement dans la base de données
+    all_predictions_rf = tfidf_rf_pipeline.predict(X_raw)
+    all_probabilities_rf = tfidf_rf_pipeline.predict_proba(X_raw)
+    save_comments_data(conn, df, all_predictions_rf, all_probabilities_rf, "ML-TF-IDF-RF")
+    
+    # Prédiction des nouveaux commentaires avec le pipeline TF-IDF + RandomForest
+    new_predictions_rf = tfidf_rf_pipeline.predict(new_df['text_clean'])
+    new_probabilities_rf = tfidf_rf_pipeline.predict_proba(new_df['text_clean'])
+    
+    # Enregistrement des nouveaux commentaires dans la base de données
+    new_df_rf = new_df.copy()
+    new_df_rf['label'] = new_predictions_rf
+    save_comments_data(conn, new_df_rf, new_predictions_rf, new_probabilities_rf, "ML-TF-IDF-RF")
+    
+    print("\nPrédictions du modèle TF-IDF + RandomForest sur les nouveaux commentaires :")
+    for comment, label, proba in zip(new_comments, new_predictions_rf, new_probabilities_rf):
         confidence = proba[1]  # Probabilité de la classe positive (haineux)
         print(f"Commentaire : '{comment}' -> {'Haineux' if label == 1 else 'Non haineux'} (confiance: {confidence:.2f})")
     
