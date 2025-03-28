@@ -129,7 +129,13 @@
  [3 8]]  # 3 faux négatifs, 8 vrais positifs
 ```
 
-#### ML: TF-IDF + RandomForest et NLP: TF-IDF + RandomForest
+#### ML: TF-IDF + RandomForest
+```
+[[5 3]  # 5 vrais négatifs, 3 faux positifs
+ [2 9]]  # 2 faux négatifs, 9 vrais positifs
+```
+
+#### NLP: TF-IDF + RandomForest
 ```
 [[5 3]  # 5 vrais négatifs, 3 faux positifs
  [2 9]]  # 2 faux négatifs, 9 vrais positifs
