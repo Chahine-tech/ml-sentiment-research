@@ -176,6 +176,24 @@ Ces résultats suggèrent que, pour notre jeu de données limité et relativemen
 
 Il est important de noter que ces résultats pourraient être différents avec un jeu de données plus grand et plus varié, comportant des exemples plus subtils de discours haineux.
 
+### Réflexion sur la similitude des résultats ML et NLP
+
+La similitude des résultats entre nos implémentations "ML" et "NLP" basées sur TF-IDF + RandomForest s'explique par le fait qu'elles utilisent fondamentalement les mêmes algorithmes sous-jacents avec les mêmes paramètres. Malgré l'étiquette "NLP" attribuée à l'une des approches, les deux utilisent essentiellement les mêmes techniques de traitement du texte et de classification.
+
+Une distinction plus marquée entre ML et NLP aurait pu être obtenue avec l'implémentation de techniques spécifiques au NLP avancé, notamment:
+
+1. **Utilisation de modèles de langue pré-entraînés**: Des modèles comme BERT, CamemBERT (adapté au français) ou FlauBERT pourraient capturer des nuances contextuelles que nos approches actuelles ignorent.
+
+2. **Analyse syntaxique ou sémantique plus poussée**: L'incorporation d'une analyse de dépendance syntaxique ou d'une désambiguïsation sémantique permettrait de mieux comprendre la structure et le sens des phrases.
+
+3. **Techniques d'extraction d'entités nommées**: L'identification des personnes, organisations ou autres entités mentionnées dans le texte pourrait fournir des indices supplémentaires sur la nature du discours.
+
+4. **Architectures neuronales avancées**: L'utilisation de réseaux de neurones récurrents (LSTM, GRU), de réseaux convolutifs pour le texte, ou d'architectures à base de transformers pourrait permettre de modéliser des interactions plus complexes entre les mots.
+
+5. **Analyse de sentiment à plusieurs niveaux**: Une approche analysant non seulement la polarité globale mais aussi les émotions spécifiques exprimées (colère, mépris, dégoût) pourrait être plus adaptée à la détection de discours haineux.
+
+Ces techniques plus avancées nécessiteraient un jeu de données plus conséquent pour être pleinement efficaces, mais elles représentent la véritable frontière entre les approches ML traditionnelles et le NLP de pointe.
+
 ## Conclusion
 
 L'approche NLP avancée offre des avantages théoriques et pratiques pour la détection de discours haineux par rapport à l'approche ML traditionnelle. Cependant, le choix entre ces méthodes dépend du contexte d'application, des ressources disponibles et des exigences spécifiques en termes de précision, d'interprétabilité et de performance computationnelle.
@@ -183,3 +201,5 @@ L'approche NLP avancée offre des avantages théoriques et pratiques pour la dé
 La combinaison des deux approches ou l'intégration de techniques encore plus avancées (comme les réseaux de neurones profonds ou l'attention) pourrait offrir les meilleurs résultats dans des applications réelles. 
 
 Nos expériences montrent que des approches plus simples peuvent parfois surpasser des méthodes plus complexes, surtout avec des jeux de données de taille limitée. Cette observation souligne l'importance de toujours comparer plusieurs approches et de ne pas supposer qu'une plus grande complexité entraîne automatiquement de meilleures performances. 
+
+Pour de futures expérimentations, l'exploration de modèles de langage pré-entraînés adaptés au français comme CamemBERT ou FlauBERT, combinée à un corpus d'entraînement plus vaste et diversifié, pourrait révéler les véritables capacités des approches NLP avancées dans la détection de discours haineux subtils ou ambigus. 
