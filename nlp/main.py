@@ -12,6 +12,8 @@ import pg8000.native
 from nltk.stem.snowball import FrenchStemmer
 from nltk.tokenize import word_tokenize
 import nltk
+from nltk.stem import WordNetLemmatizer
+from nltk.corpus import stopwords
 
 # Télécharger les ressources NLTK nécessaires
 try:
@@ -25,9 +27,29 @@ try:
 except LookupError:
     nltk.download('punkt_tab')
 
-# Création des données fictives - identiques au fichier ML pour la comparaison
+# Télécharger les ressources pour la lemmatisation
+try:
+    nltk.data.find('corpora/wordnet')
+except LookupError:
+    nltk.download('wordnet')
+try:
+    nltk.data.find('corpora/omw-1.4')
+except LookupError:
+    nltk.download('omw-1.4')
+
+# Télécharger les stopwords français
+try:
+    nltk.data.find('corpora/stopwords')
+except LookupError:
+    nltk.download('stopwords')
+
+# Charger les stopwords français directement depuis NLTK
+french_stopwords = stopwords.words('french')
+
+# Création d'un dataset étendu pour améliorer les performances du modèle
 data = {
     "text": [
+        # Dataset original
         "Je te déteste, tu es horrible!",  # Haineux
         "J'aime beaucoup cette vidéo, merci.",  # Non haineux
         "Va te faire voir, imbécile.",  # Haineux
@@ -51,23 +73,78 @@ data = {
         "Dégage d'ici, personne ne te supporte.",  # Haineux
         "Merci pour ces conseils, c'est vraiment utile.",  # Non haineux
         "T'es vraiment le pire, tes vidéos sont nulles.",  # Haineux
-        "Une très bonne vidéo, claire et précise, bravo!"  # Non haineux
+        "Une très bonne vidéo, claire et précise, bravo!",  # Non haineux
+        
+        # Nouveaux commentaires haineux
+        "Tu es vraiment stupide, arrête de parler.",  # Haineux
+        "Cette chaîne est nulle, comme toi d'ailleurs.",  # Haineux
+        "Tu racontes n'importe quoi, espèce d'idiot.",  # Haineux
+        "J'espère que ta chaîne va couler, c'est de la merde.",  # Haineux
+        "Retourne à l'école avant de faire des vidéos.",  # Haineux
+        "Personne ne t'aime, arrête de poster.",  # Haineux
+        "Tu ne mérites pas d'être sur cette plateforme.",  # Haineux
+        "Ta voix est insupportable, ferme-la.",  # Haineux
+        "Je vais signaler cette vidéo, elle est pathétique.",  # Haineux
+        "Les gens comme toi devraient disparaître d'internet.",  # Haineux
+        "Quelle perte de temps, vidéo à éviter absolument.",  # Haineux
+        "Tu n'as aucun talent, renonce à ta chaîne.",  # Haineux
+        "Je n'ai jamais vu quelque chose d'aussi mauvais.",  # Haineux
+        "C'est ridicule, comme ton intelligence.",  # Haineux
+        "Comment oses-tu poster une telle merde?",  # Haineux
+        "Ton contenu est aussi médiocre que ta personne.",  # Haineux
+        "Tu es la honte de cette communauté.",  # Haineux
+        "Je déteste tout ce que tu représentes.",  # Haineux
+        "Cette vidéo m'a donné envie de vomir.",  # Haineux
+        "Franchement, qui regarde ces conneries?",  # Haineux
+        "Tu devrais avoir honte de ce contenu minable.",  # Haineux
+        "Vidéo de merde, présentateur de merde.",  # Haineux
+        "Je n'ai jamais rien vu d'aussi nul.",  # Haineux
+        "Arrête de polluer internet avec ta présence.",  # Haineux
+        "Tu es vraiment pathétique, comme ta chaîne.",  # Haineux
+        "Vraiment le pire YouTubeur que j'ai jamais vu.",  # Haineux
+        
+        # Nouveaux commentaires non haineux
+        "Super vidéo, j'ai appris beaucoup de choses!",  # Non haineux
+        "Merci pour ces explications claires et précises.",  # Non haineux
+        "Ton contenu est toujours de grande qualité.",  # Non haineux
+        "J'attends avec impatience ta prochaine vidéo!",  # Non haineux
+        "C'est exactement ce dont j'avais besoin, merci.",  # Non haineux
+        "J'adore ta façon d'expliquer les choses complexes.",  # Non haineux
+        "Cette vidéo mérite plus de vues, je vais la partager.",  # Non haineux
+        "Excellent travail, continue comme ça!",  # Non haineux
+        "Tu as un talent incroyable pour la vulgarisation.",  # Non haineux
+        "Je me suis abonné directement après cette vidéo.",  # Non haineux
+        "Très instructif, merci pour ton temps.",  # Non haineux
+        "Ta chaîne est une vraie mine d'or d'informations.",  # Non haineux
+        "Je regarde toutes tes vidéos, elles sont géniales.",  # Non haineux
+        "Contenu de qualité comme toujours, bravo!",  # Non haineux
+        "Tu expliques mieux que mes professeurs!",  # Non haineux
+        "Merci de partager tes connaissances avec nous.",  # Non haineux
+        "Très bien réalisé, j'apprécie ton travail.",  # Non haineux
+        "Cette vidéo m'a beaucoup aidé, merci!",  # Non haineux
+        "Je recommande ta chaîne à tous mes amis.",  # Non haineux
+        "Tes vidéos sont toujours un plaisir à regarder.",  # Non haineux
+        "Le montage est super, le contenu aussi!",  # Non haineux
+        "J'ai enfin compris ce sujet grâce à toi.",  # Non haineux
+        "Ton énergie est contagieuse, j'adore!",  # Non haineux
+        "Vidéo très instructive, merci pour le partage.",  # Non haineux
+        "Je suis impressionné par la qualité de ton travail.",  # Non haineux
+        "Merci pour ces conseils qui vont m'être très utiles."  # Non haineux
     ],
-    "label": [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0]
+    "label": [
+        # Labels du dataset original (24 commentaires)
+        1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0,
+        # Labels des nouveaux commentaires haineux (26 commentaires)
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        # Labels des nouveaux commentaires non haineux (26 commentaires)
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    ]
 }
 
-# Liste des mots vides en français
-french_stopwords = [
-    "le", "la", "les", "aux", "avec", "ce", "ces", "dans", "de", "des", "du",
-    "elle", "en", "et", "eux", "il", "je", "la", "le", "leur", "lui", "ma",
-    "mais", "me", "même", "mes", "moi", "mon", "ni", "notre", "nous", "on",
-    "ou", "par", "pas", "pour", "qu", "que", "qui", "sa", "se", "ses", "son",
-    "sur", "ta", "te", "tes", "toi", "ton", "tu", "un", "une", "vos", "votre",
-    "vous", "c", "d", "j", "l", "à", "m", "n", "s", "t", "y", "été", "étée",
-    "étées", "étés", "étant", "suis", "es", "est", "sommes", "êtes", "sont",
-    "serai", "seras", "sera", "serons", "serez", "seront", "serais", "serait",
-    "serions", "seriez", "seraient"
-]
+# Afficher les statistiques du dataset
+print(f"Dataset chargé : {len(data['text'])} commentaires au total")
+print(f"Commentaires haineux : {sum(data['label'])}")
+print(f"Commentaires non haineux : {len(data['label']) - sum(data['label'])}")
 
 # Configuration de la base de données
 DB_CONFIG = {
@@ -86,6 +163,35 @@ class StemTokenizer:
     def __call__(self, doc):
         return [self.stemmer.stem(t) for t in word_tokenize(doc, language='french') 
                 if t.isalpha() and t.lower() not in french_stopwords]
+
+class LemmaTokenizer:
+    """Tokenizer personnalisé qui utilise la lemmatisation française"""
+    def __init__(self):
+        self.lemmatizer = WordNetLemmatizer()
+    
+    def __call__(self, doc):
+        return [self.lemmatizer.lemmatize(t) for t in word_tokenize(doc, language='french') 
+                if t.isalpha() and t.lower() not in french_stopwords]
+
+class HybridTokenizer:
+    """Tokenizer hybride qui utilise à la fois le stemming et la lemmatisation"""
+    def __init__(self, use_stemming=True, use_lemmatizing=True):
+        self.stemmer = FrenchStemmer() if use_stemming else None
+        self.lemmatizer = WordNetLemmatizer() if use_lemmatizing else None
+    
+    def __call__(self, doc):
+        tokens = [t for t in word_tokenize(doc, language='french') 
+                 if t.isalpha() and t.lower() not in french_stopwords]
+        
+        # Appliquer le stemming si demandé
+        if self.stemmer:
+            tokens = [self.stemmer.stem(t) for t in tokens]
+            
+        # Appliquer la lemmatisation si demandée
+        if self.lemmatizer:
+            tokens = [self.lemmatizer.lemmatize(t) for t in tokens]
+            
+        return tokens
 
 def advanced_clean_text(text):
     """Nettoie le texte avec des techniques plus avancées pour le NLP"""
@@ -165,6 +271,7 @@ def main():
     
     # Prétraitement des données avec un nettoyage plus avancé
     df['text_clean'] = df['text'].apply(advanced_clean_text)
+    print(f"Prétraitement des données terminé pour {len(df)} commentaires.")
     
     # Connexion à la base de données
     conn = connect_to_db()
@@ -172,10 +279,16 @@ def main():
         print("Impossible de continuer sans connexion à la base de données.")
         return
     
+    # Information sur les techniques NLP utilisées
+    print("\nUtilisation des techniques avancées de NLP:")
+    print("- Stemming: réduction des mots à leur racine (ex: 'mangeant' -> 'mang')")
+    print("- Lemmatisation: réduction des mots à leur forme canonique (ex: 'mangeant' -> 'manger')")
+    print("- Approche hybride: combinaison du stemming et de la lemmatisation pour une meilleure représentation")
+    
     # Définition du pipeline NLP avec TF-IDF et RandomForest
     nlp_pipeline = Pipeline([
         ('tfidf', TfidfVectorizer(
-            tokenizer=StemTokenizer(),
+            tokenizer=HybridTokenizer(use_stemming=True, use_lemmatizing=True),
             ngram_range=(1, 2),  # Utilisation de unigrammes et bigrammes
             min_df=2,            # Ignorer les termes qui apparaissent dans moins de 2 documents
             max_df=0.9,          # Ignorer les termes qui apparaissent dans plus de 90% des documents
@@ -196,7 +309,7 @@ def main():
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25, random_state=42)
     
     # Entraînement du modèle
-    print("Entraînement du modèle NLP...")
+    print("\nEntraînement du modèle NLP avec tokenisation hybride...")
     nlp_pipeline.fit(X_train, y_train)
     print("Modèle NLP entraîné avec succès.")
     
@@ -224,7 +337,8 @@ def main():
     
     # Paramètres du modèle
     model_params = {
-        "vectorizer": "TfidfVectorizer",
+        "vectorizer": "TfidfVectorizer with HybridTokenizer",
+        "tokenization": "hybrid (stemming + lemmatization)",
         "ngram_range": "1-2",
         "model_type": "RandomForestClassifier",
         "n_estimators": 100,
